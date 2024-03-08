@@ -22,7 +22,7 @@ import requests, boto3, botocore, psutil, urllib3
 # from textual.widgets import DataTable, Footer, Button 
 
 __app__ = 'ASM, a user friendly way to use Amazon Web Services'
-__version__ = '0.1.02'
+__version__ = '0.1.03'
 
 def main():
         
@@ -1331,6 +1331,7 @@ class AWSBoto:
         ### end block 
 
         print(f" will execute '{cmdline}' on {fqdn} ... ")
+        bootstrap_build += '\n$PYBIN ~/.local/bin/' + cmdline + f' >> ~/out.asm.{iid}.txt 2>&1'
         # once everything is done, commit suicide, but only if ~/no-terminate does not exist:
 
         sshuser = self.ec2_get_default_user(fqdn)
@@ -1964,6 +1965,7 @@ class AWSBoto:
         {pkgm} install -y python3.11-pip python3.11-devel # for RHEL
         {pkgm} install -y gcc mdadm jq git python3-pip 
         {pkgm} install -y python3-venv python3-dev # for Ubuntu
+        {pkgm} install -y fuse3
         format_largest_unused_block_devices /opt
         chown {self.cfg.defuser} /opt
         format_largest_unused_block_devices /mnt/scratch
@@ -2067,12 +2069,14 @@ class AWSBoto:
         chmod +x ~/.local/bin/spot-termination-time
         curl -Ls https://raw.githubusercontent.com/dirkpetersen/asm/main/asm.py?token=$(date +%s) -o ~/.local/bin/{self.scriptname}
         curl -Ls https://raw.githubusercontent.com/dirkpetersen/asm/main/asm?token=$(date +%s) -o ~/.local/bin/asm
-        curl -Ls https://raw.githubusercontent.com/dirkpetersen/scibob/main/aws-eb.py?token=$(date +%s) -o ~/.local/bin/{self.scriptname}
-        #curl -Ls https://raw.githubusercontent.com/dirkpetersen/dptests/main/aws-eb/aws-eb.py?token=$(date +%s) -o ~/.local/bin/{self.scriptname}        
+        curl -Ls https://raw.githubusercontent.com/dirkpetersen/scibob/main/aws-eb.py?token=$(date +%s) -o ~/.local/bin/aws-eb.py
+        #curl -Ls https://raw.githubusercontent.com/dirkpetersen/dptests/main/aws-eb/aws-eb.py?token=$(date +%s) -o ~/.local/bin/aws-eb.py        
         curl -Ls https://raw.githubusercontent.com/dirkpetersen/dptests/main/simple-benchmark.py?token=$(date +%s) -o ~/.local/bin/simple-benchmark.py
         chmod +x ~/.local/bin/asm
+        chmod +x ~/.local/bin/aws-eb.py
         chmod +x ~/.local/bin/simple-benchmark.py
         $PYBIN ~/.local/bin/simple-benchmark.py > ~/out.simple-benchmark.txt &
+        $PYBIN ~/.local/bin/aws-eb.py download -c {self.args.cputype} >> ~/out.aws-eb.txt 2>&1 &'
         # wait for lmod to be installed
         echo "Waiting for Lmod install ..."
         until [ -f /usr/share/lmod/lmod/init/bash ]; do sleep 3; done; echo "lmod exists, please wait ..."
