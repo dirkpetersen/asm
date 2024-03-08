@@ -2003,8 +2003,7 @@ class AWSBoto:
         fi
         ''').strip()
         return userdata
-    
-    
+        
     def _ec2_user_space_script(self, instance_id, fqdn, bscript='~/bootstrap.sh'):
         # Define script that will be installed by ec2-user 
         emailaddr = self.cfg.read('general','email')
@@ -2045,6 +2044,8 @@ class AWSBoto:
         fi
         $PYBIN -m pip install --upgrade --user pip
         $PYBIN -m pip install --upgrade --user wheel awscli
+        $PYBIN -m pip install --user --upgrade boto3 requests
+        $PYBIN -m pip install --user psutil
         aws configure set aws_access_key_id {os.getenv('AWS_ACCESS_KEY_ID', '')}
         aws configure set aws_secret_access_key {os.getenv('AWS_SECRET_ACCESS_KEY')}
         aws configure set region {self.cfg.aws_region}
@@ -2076,10 +2077,15 @@ class AWSBoto:
         chmod +x ~/.local/bin/aws-eb.py
         chmod +x ~/.local/bin/simple-benchmark.py
         $PYBIN ~/.local/bin/simple-benchmark.py > ~/out.simple-benchmark.txt &
-        $PYBIN ~/.local/bin/aws-eb.py download -c {self.args.cputype} >> ~/out.aws-eb.txt 2>&1 &'
         # wait for lmod to be installed
         echo "Waiting for Lmod install ..."
         until [ -f /usr/share/lmod/lmod/init/bash ]; do sleep 3; done; echo "lmod exists, please wait ..."
+        echo 'test -d /usr/local/lmod/lmod/init && source /usr/local/lmod/lmod/init/bash' >> ~/.bashrc
+        echo 'export MODULEPATH=/opt/eb/modules/all:/opt/eb/modules/lib:/opt/eb/modules/lang:/opt/eb/modules/compiler:/opt/eb/modules/bio' >> ~/.bashrc
+        $PYBIN ~/.local/bin/{self.scriptname} config --monitor '{emailaddr}'
+        mkdir -p /opt/eb/tmp
+        mkdir -p /opt/eb/sources_s3 # rclone mount point
+        $PYBIN ~/.local/bin/aws-eb.py download -c {self.args.cputype} >> ~/out.aws-eb.txt 2>&1 &
         if systemctl is-active --quiet redis6 || systemctl is-active --quiet redis; then
           juicefs format --storage s3 --bucket https://s3.{self.cfg.aws_region}.amazonaws.com/{self.cfg.bucket} redis://localhost:6379 {juiceid}
           juicefs config -y --access-key={os.getenv('AWS_ACCESS_KEY_ID', '')} --secret-key={os.getenv('AWS_SECRET_ACCESS_KEY','')} --trash-days 0 redis://localhost:6379
@@ -2094,12 +2100,7 @@ class AWSBoto:
           sed -i 's/--access-key=[^ ]*/--access-key=xxx /' {bscript}
           sed -i 's/--secret-key=[^ ]*/--secret-key=yyy /' {bscript}
           sed -i 's/^  juicefs config /#&/' {bscript}
-        fi
-        mkdir -p /opt/eb/tmp
-        mkdir -p /opt/eb/sources_s3 # rclone mount point     
-        $PYBIN -m pip install --user --upgrade boto3 requests
-        $PYBIN -m pip install --user psutil
-        $PYBIN ~/.local/bin/{self.scriptname} config --monitor '{emailaddr}'
+        fi 
         # update DNS if hosted zone is available in route53
         dnszones=$(aws route53 list-hosted-zones)
         dns_zone_name=$(echo $dnszones | jq -r '.HostedZones[0].Name')
@@ -2107,6 +2108,7 @@ class AWSBoto:
           dns_zone_id=$(echo $dnszones | jq -r '.HostedZones[0].Id' | cut -d'/' -f3)
           pub_ip=$(~/.local/bin/get-public-ip)
           host_s=$(hostname -s)
+          host_f=${{host_s}}.${{dns_zone_name%?}}
           JSON53="{{\\"Comment\\":\\"DNS update\\",\\"Changes\\":[{{\\"Action\\":\\"UPSERT\\",\\"ResourceRecordSet\\":{{\\"Name\\":\\"${{host_s}}.${{dns_zone_name}}\\",\\"Type\\":\\"A\\",\\"TTL\\":60,\\"ResourceRecords\\":[{{\\"Value\\":\\"$pub_ip\\"}}]}}}}]}}"
           aws route53 change-resource-record-sets --hosted-zone-id ${{dns_zone_id}} --change-batch "${{JSON53}}"
         fi
@@ -2115,6 +2117,11 @@ class AWSBoto:
         . le/bin/activate
         pip install certbot-dns-route53
         sudo -E /home/{self.cfg.defuser}/le/bin/certbot certonly --dns-route53 --register-unsafely-without-email --agree-tos -d ${{host_s}}.${{dns_zone_name}}
+        mkdir -p ~/.jupyter
+        sudo cp /etc/letsencrypt/live/${{host_f}}/fullchain.pem ~/.jupyter/fullchain.pem
+        sudo cp /etc/letsencrypt/live/${{host_f}}/privkey.pem ~/.jupyter/privkey.pem
+        sudo chown {self.cfg.defuser} ~/.jupyter/fullchain.pem
+        sudo chown {self.cfg.defuser} ~/.jupyter/privkey.pem
         echo ""
         echo -e "CPU info:"
         lscpu | head -n 20
@@ -2127,16 +2134,22 @@ class AWSBoto:
         pixi add r
         pixi add jupyterlab
         pixi add r-irkernel
-        pixi run bash -c "jupyter-lab --ip=$(get-local-ip) --no-browser --autoreload --notebook-dir=~ > ~/.jupyter.log 2>&1" &
+        pixi run bash -c "jupyter-lab --ip=$(get-local-ip) --no-browser --autoreload --notebook-dir=~ --certfile=~/.jupyter/fullchain.pem --keyfile=~/.jupyter/privkey.pem > ~/.jupyter.log 2>&1" &
         # echo 'pixi shell --manifest-path ~/conda/pixi.toml' >> ~/.bashrc # causes fork bomb
         sleep 60
-        sed "s/$(get-local-ip)/$(get-public-ip)/g" ~/.jupyter.log > ~/.jupyter-public.log
-        echo 'test -d /usr/local/lmod/lmod/init && source /usr/local/lmod/lmod/init/bash' >> ~/.bashrc
+        # 
+        if [[ -n ${{host_f}} ]]; then
+          sed "s/$(get-local-ip)/${{host_f}}/g" ~/.jupyter.log > ~/.jupyter-public.log
+          url=$(tail -n 7 ~/.jupyter-public.log | grep ${{host_f}} |  tr -d ' ')
+        else
+          sed "s/$(get-local-ip)/$(get-public-ip)/g" ~/.jupyter.log > ~/.jupyter-public.log
+          url=$(tail -n 7 ~/.jupyter-public.log | grep $(get-public-ip) |  tr -d ' ')
+        fi
         echo "" >> ~/.bashrc
-        echo 'echo "Access JupyterLab:"' >> ~/.bashrc
-        url=$(tail -n 7 ~/.jupyter-public.log | grep $(get-public-ip) |  tr -d ' ')
+        echo 'echo "Access JupyterLab:"' >> ~/.bashrc    
         echo "echo \\" $url\\"" >> ~/.bashrc
-        echo 'echo "type \"cd ~/conda && pixi shell\" to activate conda environment"' >> ~/.bashrc
+        echo 'echo "type this command to activate conda environment:"' >> ~/.bashrc
+        echo 'echo "cd ~/conda && pixi shell"' >> ~/.bashrc
         ''').strip()
     
     def _ec2_launch_instance(self, disk_gib, instance_type, iamprofile=None, profile=None):
