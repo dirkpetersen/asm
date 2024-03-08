@@ -22,7 +22,7 @@ import requests, boto3, botocore, psutil, urllib3
 # from textual.widgets import DataTable, Footer, Button 
 
 __app__ = 'ASM, a user friendly way to use Amazon Web Services'
-__version__ = '0.1.01'
+__version__ = '0.1.02'
 
 def main():
         
@@ -100,7 +100,7 @@ def subcmd_config(args, cfg, aws):
         print("r53_get_short_host_or_ip('18.246.13.66'):", aws.r53_get_short_host_or_ip('18.246.13.66'))
     
     if args.dnscleanup:
-        aws.r53_cleanup(aws.basehostname)
+        aws.r53_cleanup(aws.hostbasename)
         return True
 
     if args.list:
@@ -179,6 +179,10 @@ def subcmd_config(args, cfg, aws):
     emailstr = emailaddr.replace('@','-')
     emailstr = emailstr.replace('.','-')
 
+    print("")
+
+    host_base_name =  cfg.prompt('Please confirm/edit the standard hostname prefix. Use something short like your initials or first name. All machines will have a hostname with this prefix followed by a number ',
+                                'asm|general|host_base_name','string')
 
     print("")
 
@@ -186,9 +190,10 @@ def subcmd_config(args, cfg, aws):
     bucket = cfg.prompt('Please confirm/edit S3 bucket name to be created in all used profiles.',
                         f'asm-{emailstr}|general|bucket','string')
     archiveroot = cfg.prompt('Please confirm/edit the root path inside your S3 bucket',
-                                'aws|general|archiveroot','string')
-    s3_storage_class =  cfg.prompt('Please confirm/edit the AWS S3 Storage class',
-                                'INTELLIGENT_TIERING|general|s3_storage_class','string')
+                                f'{host_base_name}|general|archiveroot','string')
+
+    if not cfg.read('general', 's3_storage_class'):
+        cfg.write('general', 's3_storage_class', 'INTELLIGENT_TIERING')
 
 
     cfg.create_aws_configs()
@@ -200,7 +205,8 @@ def subcmd_config(args, cfg, aws):
     if not aws_region:
         aws_region =  cfg.prompt('Please select AWS S3 region (e.g. us-west-2 for Oregon)',
                                 aws.get_aws_regions())
-    aws_region =  cfg.prompt('Please confirm/edit the AWS S3 region', aws_region)
+        
+    #aws_region =  cfg.prompt('Please confirm/edit the AWS S3 region', aws_region)
             
     #cfg.create_aws_configs(None, None, aws_region)
     print(f"\n  Verify that bucket '{bucket}' is configured ... ")
@@ -373,7 +379,7 @@ def subcmd_ssh(args, cfg, aws):
         aws.ec2_terminate_instance(args.terminate)
         return True
 
-    ilist = aws.ec2_list_instances('Name', 'AWSEBSelfDestruct')
+    ilist = aws.ec2_list_instances('Name', 'ASMSelfDestruct')
     shorthosts = [sublist[0] for sublist in ilist if sublist]
  
     if args.list:
@@ -800,7 +806,7 @@ class AWSBoto:
         self.cfg = cfg
         self.awsprofile = self.cfg.awsprofile
         self.scriptname = os.path.basename(__file__)
-        self.basehostname = 'asmhost'
+        self.hostbasename = self.cfg.read('general', 'host_base_name', 'asm')
         self.cpu_types = {
             "graviton-2": ('c6g', 'c6gd', 'c6gn', 'm6g', 'm6gd', 'r6g', 'r6gd', 't4g' ,'g5g'),
             "graviton-3": ('c7g', 'c7gd', 'c7gn', 'm7g', 'm7gd', 'r7g', 'r7gd'),
@@ -873,8 +879,7 @@ class AWSBoto:
         return ""
 
     def get_ec2_instance_families(self, profile=None):        
-        session = boto3.Session(profile_name=profile) if profile else boto3.Session()
-        ec2 = session.client('ec2')
+        ec2 = self.awssession.client('ec2')
         families = set()
         try:
             paginator = ec2.get_paginator('describe_instance_types')
@@ -886,15 +891,18 @@ class AWSBoto:
 
         except Exception as e:
             print(f"Error retrieving instance types: {e}")
-            return
+            if type(e).__name__ == "TokenRetrievalError":
+                print(f'Please run "aws ssh login" to refresh your AWS credentials.')
+                sys.exit(1)            
+            return []
 
         # Convert the set to a list and sort it to list families in order
         sorted_families = sorted(list(families))
         return sorted_families
     
     def get_ec2_smallest_instance_type(self, family, min_vcpu, min_memory, gpu_type=None, profile=None):
-        session = boto3.Session(profile_name=profile) if profile else boto3.Session()
-        ec2 = session.client('ec2')
+        #session = boto3.Session(profile_name=profile) if profile else boto3.Session()
+        ec2 = self.awssession.client('ec2')
 
         # Initialize variables
         suitable_types = []
@@ -922,8 +930,10 @@ class AWSBoto:
 
         except Exception as e:
             print(f"Error retrieving instance types: {e}")
-            return 
-        None
+            if type(e).__name__ == "TokenRetrievalError":
+                print(f'Please run "aws ssh login" to refresh your AWS credentials.')
+                sys.exit(1)               
+            return []
 
     def get_aws_regions(self, profile=None, provider='AWS'):
         # returns a list of AWS regions 
@@ -1127,6 +1137,8 @@ class AWSBoto:
             return False
         except Exception as e:
             print(f"An unexpected Error in _check_s3_credentials with profile {profile}: {e}")
+            if type(e).__name__ == "TokenRetrievalError":
+                print(f'Please run "aws ssh login" to refresh your AWS credentials.')        
             sys.exit(1)
         return True
     
@@ -1378,6 +1390,9 @@ class AWSBoto:
             #print('\nfiltered_instance_families:', instance_ids)
         except Exception as e:
             print(f"Error retrieving instance types: {e}")
+            if type(e).__name__ == "TokenRetrievalError":
+                print(f'Please run "aws ssh login" to refresh your AWS credentials.')
+                sys.exit(1)               
             return []
         
         return filtered_instance_families
@@ -1476,7 +1491,7 @@ class AWSBoto:
                     "Resource": "*",
                     "Condition": {
                         "StringEquals": {
-                            "ec2:ResourceTag/Name": "AWSEBSelfDestruct"
+                            "ec2:ResourceTag/Name": "ASMSelfDestruct"
                         }
                     }
                 },
@@ -1489,7 +1504,7 @@ class AWSBoto:
                 }
             ]
         }
-        policy_name = 'AWSEBSelfDestructPolicy'     
+        policy_name = 'ASMSelfDestructPolicy'     
 
         destruct_policy_arn = self._ec2_create_or_get_iam_policy(
             policy_name, policy_document, profile)
@@ -1893,7 +1908,7 @@ class AWSBoto:
         else:
             pkgm = 'yum'
         long_timezone = self.cfg.get_time_zone()
-        newhostname = self.r53_get_next_nodename(self.basehostname)
+        newhostname = self.r53_get_next_nodename(self.hostbasename)
         userdata = textwrap.dedent(f'''                                   
         #! /bin/bash
         format_largest_unused_block_devices() {{
@@ -2100,6 +2115,24 @@ class AWSBoto:
         echo -e "CPU info:"
         lscpu | head -n 20
         printf " CPUs:" && grep -c "processor" /proc/cpuinfo
+        ###
+        pixi init conda
+        cd conda
+        pixi add conda
+        pixi add python
+        pixi add r
+        pixi add jupyterlab
+        pixi add r-irkernel
+        pixi run bash -c "jupyter-lab --ip=$(get-local-ip) --no-browser --autoreload --notebook-dir=~ > ~/.jupyter.log 2>&1" &
+        # echo 'pixi shell --manifest-path ~/conda/pixi.toml' >> ~/.bashrc # causes fork bomb
+        sleep 60
+        sed "s/$(get-local-ip)/$(get-public-ip)/g" ~/.jupyter.log > ~/.jupyter-public.log
+        echo 'test -d /usr/local/lmod/lmod/init && source /usr/local/lmod/lmod/init/bash' >> ~/.bashrc
+        echo "" >> ~/.bashrc
+        echo 'echo "Access JupyterLab:"' >> ~/.bashrc
+        url=$(tail -n 7 ~/.jupyter-public.log | grep $(get-public-ip) |  tr -d ' ')
+        echo "echo \\" $url\\"" >> ~/.bashrc
+        echo 'echo "type \"cd ~/conda && pixi shell\" to activate conda environment"' >> ~/.bashrc
         ''').strip()
     
     def _ec2_launch_instance(self, disk_gib, instance_type, iamprofile=None, profile=None):
@@ -2227,7 +2260,7 @@ class AWSBoto:
                     TagSpecifications=[
                         {
                             'ResourceType': 'instance',
-                            'Tags': [{'Key': 'Name', 'Value': 'AWSEBSelfDestruct'}]
+                            'Tags': [{'Key': 'Name', 'Value': 'ASMSelfDestruct'}]
                         }
                     ],
                     InstanceMarketOptions=marketoptions,
@@ -2305,7 +2338,7 @@ class AWSBoto:
         instance.wait_until_running()
         print(f'Instance IP: {instance.public_ip_address}')
 
-        last_instance = self.r53_register_host(self.basehostname, instance.public_ip_address)
+        last_instance = self.r53_register_host(self.hostbasename, instance.public_ip_address)
 
         if last_instance != instance.public_ip_address:
             print(f'FQDN: {last_instance}')
@@ -2334,7 +2367,7 @@ class AWSBoto:
         ip = self.r53_get_ip(ip)
 
         ec2 = self.awssession.client('ec2')
-        #ips = self.ec2_list_ips(self, 'Name', 'AWSEBSelfDestruct')
+        #ips = self.ec2_list_ips(self, 'Name', 'ASMSelfDestruct')
         # Use describe_instances with a filter for the public IP address to find the instance ID
         filters = [{
             'Name': 'network-interface.addresses.association.public-ip',
@@ -2365,7 +2398,7 @@ class AWSBoto:
         # get the default user for the OS, e.g. ubuntu, ec2-user, centos, ...        
         ip_or_host = self.r53_get_short_host_or_ip(ip_or_host)        
         if not instance_list:
-            instance_list = self.ec2_list_instances('Name', 'AWSEBSelfDestruct')
+            instance_list = self.ec2_list_instances('Name', 'ASMSelfDestruct')
         for inst in instance_list:
             if inst[0] == ip_or_host:
                 if inst[3].startswith('ubuntu'):
@@ -2390,34 +2423,39 @@ class AWSBoto:
         :return: List of IP addresses
         """
         #session = boto3.Session(profile_name=profile) if profile else boto3.Session()
-        ec2 = self.awssession.client('ec2')        
-        
-        # Define the filter
-        filters = [
-            {
-                'Name': 'tag:' + tag_name,
-                'Values': [tag_value]
-            },
-            {
-                'Name': 'instance-state-name',
-                'Values': ['running']
-            }
-        ]
-        
-        # Make the describe instances call
         try:
-            response = ec2.describe_instances(Filters=filters)        
+            ec2 = self.awssession.client('ec2')        
+            
+            # Define the filter
+            filters = [
+                {
+                    'Name': 'tag:' + tag_name,
+                    'Values': [tag_value]
+                },
+                {
+                    'Name': 'instance-state-name',
+                    'Values': ['running']
+                }
+            ]
+            
+            # Make the describe instances call
+        
+            response = ec2.describe_instances(Filters=filters)
         except botocore.exceptions.ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'AccessDenied':
                 self.cfg.printdbg(f'Access denied! Please check your IAM permissions. \n   Error: {e}')
             else:
                 print(f'ec2_list_instances, aws client Error: {e}')
-            return []            
-        except Exception as e:
-            print(f'ec2_list_instances, other Error: {e}')
             return []
-        #An error occurred (AuthFailure) when calling the DescribeInstances operation: AWS was not able to validate the provided access credentials
+        except Exception as e:
+            print(f'ec2_list_instances(), {type(e).__name__} Error: {e}')
+            if type(e).__name__ == "TokenRetrievalError":
+                print(f'Please run "aws ssh login" to refresh your AWS credentials.')
+                sys.exit(1)
+            #traceback.print_exc()   # This prints the stack trace
+            return []
+        
         ilist = []    
         # Extract IP addresses
         for reservation in response['Reservations']:
@@ -2889,7 +2927,7 @@ class AWSBoto:
                     "Resource": "*",
                     "Condition": {
                         "StringEquals": {
-                            "ec2:ResourceTag/Name": "AWSEBSelfDestruct"
+                            "ec2:ResourceTag/Name": "ASMSelfDestruct"
                         }
                     }
                 }
@@ -4353,8 +4391,8 @@ def parse_arguments():
     Gather command-line arguments.
     """
     parser = argparse.ArgumentParser(prog='asm ',
-        description='A (mostly) automated build tool for building Sci packages in AWS. ' + \
-                    'The binary packages are stored in an S3 bucket and can be downloaded by anyone.')
+        description='ASM is a script that creates Linux machines (EC2 Instances on Amazon). ' + \
+                    'It will download lots of precompiled software ')
     parser.add_argument( '--debug', '-d', dest='debug', action='store_true', default=False,
         help="verbose output for all commands")
     parser.add_argument('--profile', '-p', dest='awsprofile', action='store', default='', metavar='<aws-profile>',
@@ -4398,8 +4436,8 @@ def parse_arguments():
         help='run --list to see available GPU types')       
     parser_launch.add_argument('--mem', '-m', dest='mem', type=int, action='store', default=8, metavar='<memory-size-gb>',
         help='GB Memory allocated to instance  (default=8)')
-    parser_launch.add_argument('--disk', '-d', dest='disk', type=int, action='store', default=350, metavar='<disk-size-gb>',
-        help='Add an EBS disk to the instance and mount it to /opt (default=350 GB')
+    parser_launch.add_argument('--disk', '-d', dest='disk', type=int, action='store', default=225, metavar='<disk-size-gb>',
+        help='Add an EBS disk to the instance and mount it to /opt (default=225 GB')
     parser_launch.add_argument('--instance-type', '-t', dest='instancetype', action='store', default="", metavar='<aws.instance>',
         help='The EC2 instance type is auto-selected, but you can pick any other type here')    
     parser_launch.add_argument('--az', '-z', dest='az', action='store', default="",
