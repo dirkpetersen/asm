@@ -74,12 +74,13 @@ def subcmd_config(args, cfg, aws):
     # configure user and / or team settings 
     # arguments are Class instances passed from main
 
-    if args.test:        
+    if args.test:
         # IAM
         # roles = aws.iam_list_my_roles()
         # print('iam_list_my_roles()',roles)
 
         print(aws._ec2_cloud_init_script())
+        print(aws._ec2_user_space_script("i-schana", "dp35.aws.internetchen.de"))
         return True
     
         print(f'get_aws_account_and_user_id()', aws.get_aws_account_and_user_id())
@@ -1974,7 +1975,7 @@ class AWSBoto:
         {pkgm} install -y redis6 
         {pkgm} install -y redis
         {pkgm} install -y python3.11-pip python3.11-devel # for RHEL
-        {pkgm} install -y gcc mdadm jq git python3-pip 
+        {pkgm} install -y gcc mdadm jq git python3-pip mc
         {pkgm} install -y python3-venv python3-dev # for Ubuntu
         {pkgm} install -y fuse3
         format_largest_unused_block_devices /opt
@@ -2000,7 +2001,8 @@ class AWSBoto:
         systemctl start atd
         {pkgm} upgrade -y
         {pkgm} install -y Lmod
-        {pkgm} install -y mc docker nodejs-npm
+        {pkgm} install -y docker nodejs-npm # RHEL
+        {pkgm} install -y docker.io nodejs npm # Ubuntu
         {pkgm} install -y lua lua-posix lua-devel tcl-devel
         {pkgm} install -y build-essential rpm2cpio tcl-dev tcl lmod #Ubuntu 22.04 only has lmod 6.6 and EB5 requires 8.0
         {pkgm} install -y lua5.3 lua-bit32 lua-posix lua-posix-dev liblua5.3-0 liblua5.3-dev tcl8.6 tcl8.6-dev libtcl8.6
@@ -2053,10 +2055,10 @@ class AWSBoto:
           export PYBIN=/usr/bin/python3.11
           ln -s /usr/bin/python3.11 ~/.local/bin/python3
         fi
-        $PYBIN -m pip install --upgrade --user pip
-        $PYBIN -m pip install --upgrade --user wheel awscli
-        $PYBIN -m pip install --user --upgrade boto3 requests
-        $PYBIN -m pip install --user psutil
+        $PYBIN -m pip install --upgrade --user --break-system-packages pip
+        $PYBIN -m pip install --upgrade --user --break-system-packages wheel awscli
+        $PYBIN -m pip install --user --upgrade --break-system-packages boto3 requests
+        $PYBIN -m pip install --user --break-system-packages psutil
         aws configure set aws_access_key_id {os.getenv('AWS_ACCESS_KEY_ID', '')}
         aws configure set aws_secret_access_key {os.getenv('AWS_SECRET_ACCESS_KEY')}
         aws configure set region {self.cfg.aws_region}
@@ -4450,6 +4452,8 @@ def parse_arguments():
     parser_config.add_argument('--os', '-o', dest='os', action='store', default="amazon",
         help='build operating system, default=amazon (which is an optimized fedora) ' + 
         'valid choices are: amazon, rhel, ubuntu and any AMI name including wilcards *')    
+    parser_config.add_argument('--cpu-type', '-c', dest='cputype', action='store', default="graviton-3", 
+        metavar='<cpu-type>', help='run config --list to see available CPU types. (e.g graviton-3)')    
         
     # ***
     parser_launch = subparsers.add_parser('launch', aliases=['lau'],
