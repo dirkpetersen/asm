@@ -78,6 +78,9 @@ def subcmd_config(args, cfg, aws):
         # IAM
         # roles = aws.iam_list_my_roles()
         # print('iam_list_my_roles()',roles)
+
+        print(aws._ec2_cloud_init_script())
+        return True
     
         print(f'get_aws_account_and_user_id()', aws.get_aws_account_and_user_id())
         print(f'iam_list_external_accounts_and_roles()', aws.iam_list_external_accounts_and_roles())
@@ -119,7 +122,7 @@ def subcmd_config(args, cfg, aws):
             print(f'{c}: {" ".join(i)}')
         print('\nSupported OS, versions and CPU types (s3_prefixes)')
         print("--------------------------------------------------")
-        prefixes = ['amzn-2023_graviton-3', 'amzn-2023_epyc-gen-4', 'amzn-2023_xeon-gen-4', 'rhel-9_xeon-gen-1', 'ubuntu-22.04_xeon-gen-1']
+        prefixes = ['amzn-2023_graviton-3', 'amzn-2023_epyc-gen-4', 'amzn-2023_xeon-gen-4', 'rhel-9_xeon-gen-1', 'ubuntu-24.04_xeon-gen-1']
         print("\n".join(prefixes))
         return True
     
@@ -1691,6 +1694,8 @@ class AWSBoto:
         # Sort images by creation date to get the latest
         images = sorted(response['Images'], key=lambda k: k['CreationDate'], reverse=True)
         if images:
+            iname = images[0]["Name"].split('/')[-1]
+            print(f'Using AMI image {iname}')
             return images[0]['ImageId']
         else:
             return None       
@@ -1706,7 +1711,7 @@ class AWSBoto:
         response = ec2_client.describe_images(
             Owners=['099720109477'],  # Ubuntu's owner ID
             Filters=[
-                {'Name': 'name', 'Values': ['ubuntu/images/hvm-ssd/ubuntu-*']},
+                {'Name': 'name', 'Values': ['ubuntu/images/hvm-*/ubuntu-*']}, # or hvm-* hvm-ssd-gp3
                 {'Name': 'description', 'Values': ['*LTS*']},
                 {'Name': 'architecture', 'Values': [myarch]},
                 {'Name': 'virtualization-type', 'Values': ['hvm']},
@@ -1719,6 +1724,8 @@ class AWSBoto:
         # Sort images by creation date / Description to get the latest
         images = sorted(response['Images'], key=lambda k: k['Description'], reverse=True)  
         if images:
+            iname = images[0]["Name"].split('/')[-1]
+            print(f'Using AMI image {iname}')
             return images[0]['ImageId']
         else:
             return None        
@@ -1751,6 +1758,8 @@ class AWSBoto:
         #print(images[0])
         #sys.exit(1)
         if images:
+            iname = images[0]["Name"].split('/')[-1]
+            print(f'Using AMI image {iname}')
             return images[0]['ImageId']
         else:
             return None 
@@ -1774,6 +1783,8 @@ class AWSBoto:
         # Sort images by creation date to get the latest
         images = sorted(response['Images'], key=lambda k: k['DeprecationTime'], reverse=True) 
         if images:
+            iname = images[0]["Name"].split('/')[-1]
+            print(f'Using AMI image {iname}')            
             return images[0]['ImageId']
         else:
             return None 
@@ -1991,7 +2002,7 @@ class AWSBoto:
         {pkgm} install -y Lmod
         {pkgm} install -y mc docker nodejs-npm
         {pkgm} install -y lua lua-posix lua-devel tcl-devel
-        {pkgm} install -y build-essential rpm2cpio tcl-dev tcl #lmod #Ubuntu 22.04 only has lmod 6.6 and EB5 requires 8.0
+        {pkgm} install -y build-essential rpm2cpio tcl-dev tcl lmod #Ubuntu 22.04 only has lmod 6.6 and EB5 requires 8.0
         {pkgm} install -y lua5.3 lua-bit32 lua-posix lua-posix-dev liblua5.3-0 liblua5.3-dev tcl8.6 tcl8.6-dev libtcl8.6
         dnf group install -y 'Development Tools'
         cd /tmp
@@ -2211,9 +2222,10 @@ class AWSBoto:
         
         if not imageid:
             print(f'No {self.args.os} image found that matches the criteria.')
-            return None, None
+            sys.exit(1)
+            #return None, None
 
-        print(f'Using {self.args.os} image id: {imageid}')
+        #print(f'Using {self.args.os} image id: {imageid}')
 
         #print(f'*** userdata-script:\n{self._ec2_user_data_script()}')
 
@@ -2417,6 +2429,7 @@ class AWSBoto:
         if not instance_list:
             instance_list = self.ec2_list_instances('Name', 'ASMSelfDestruct')
         for inst in instance_list:
+            #print(f'Instaaaance {inst[3]}')
             if inst[0] == ip_or_host:
                 if inst[3].startswith('ubuntu'):
                     return 'ubuntu'
@@ -2494,8 +2507,7 @@ class AWSBoto:
                 #os_info = ami_info.get('Description') or ami_info.get('Name')
                 os_info = ami_info.get('Name')
                 if os_info:
-                    os_info = self.cfg.parse_version_string(os_info) #.replace('ubuntu/images/hvm-ssd/','').strip()
-                
+                    os_info = self.cfg.parse_version_string(os_info.split('/')[-1]) #.replace('ubuntu/images/hvm-ssd/','').strip()     
                 # lt = ''
                 # if instance['LaunchTime']:
                 #     lt = instance['LaunchTime'].strftime("%m-%d %H:%M")
@@ -4434,7 +4446,10 @@ def parse_arguments():
     parser_config.add_argument( '--dns-cleanup', '-d', dest='dnscleanup', action='store_true', default=False,
         help="Clean unused A records from Route53 DNS")    
     parser_config.add_argument( '--test', '-t', dest='test', action='store_true', default=False,
-        help="Test option simply for software debugging")        
+        help="Test option simply for software debugging")
+    parser_config.add_argument('--os', '-o', dest='os', action='store', default="amazon",
+        help='build operating system, default=amazon (which is an optimized fedora) ' + 
+        'valid choices are: amazon, rhel, ubuntu and any AMI name including wilcards *')    
         
     # ***
     parser_launch = subparsers.add_parser('launch', aliases=['lau'],
