@@ -80,6 +80,7 @@ def subcmd_config(args, cfg, aws):
         # print('iam_list_my_roles()',roles)
 
         print(aws._ec2_cloud_init_script())
+        print('---------------------------------------------------------------')
         print(aws._ec2_user_space_script("i-schana", "dp35.aws.internetchen.de"))
         return True
     
@@ -1976,7 +1977,7 @@ class AWSBoto:
         {pkgm} install -y redis
         {pkgm} install -y python3.11-pip python3.11-devel # for RHEL
         {pkgm} install -y gcc mdadm jq git python3-pip mc
-        {pkgm} install -y python3-venv python3-dev # for Ubuntu
+        {pkgm} install -y python3-venv python3-dev rpm2cpio lmod # for Ubuntu
         {pkgm} install -y fuse3
         format_largest_unused_block_devices /opt
         chown {self.cfg.defuser} /opt
@@ -2000,11 +2001,10 @@ class AWSBoto:
         loginctl enable-linger {self.cfg.defuser}
         systemctl start atd
         {pkgm} upgrade -y
-        {pkgm} install -y Lmod
-        {pkgm} install -y docker nodejs-npm # RHEL
+        {pkgm} install -y docker nodejs-npm Lmod # RHEL
         {pkgm} install -y docker.io nodejs npm # Ubuntu
         {pkgm} install -y lua lua-posix lua-devel tcl-devel
-        {pkgm} install -y build-essential rpm2cpio tcl-dev tcl lmod #Ubuntu 22.04 only has lmod 6.6 and EB5 requires 8.0
+        {pkgm} install -y build-essential tcl-dev tcl       #Ubuntu 22.04 only has lmod 6.6 and EB5 requires 8.0
         {pkgm} install -y lua5.3 lua-bit32 lua-posix lua-posix-dev liblua5.3-0 liblua5.3-dev tcl8.6 tcl8.6-dev libtcl8.6
         dnf group install -y 'Development Tools'
         cd /tmp
@@ -2016,7 +2016,7 @@ class AWSBoto:
         fi
         ''').strip()
         return userdata
-        
+    
     def _ec2_user_space_script(self, instance_id, fqdn, bscript='~/bootstrap.sh'):
         # Define script that will be installed by ec2-user 
         emailaddr = self.cfg.read('general','email')
@@ -2036,7 +2036,7 @@ class AWSBoto:
           echo 'export PATH=~/.local/bin:$PATH' >> ~/.bashrc
         fi
         mkdir -p ~/.config/asm
-        mkdir -p ~/.local/bin
+        mkdir -p ~/.local/bin        
         echo 'PS1="\\u@{myhostname}:\\w$ "' >> ~/.bashrc
         echo '#export EC2_INSTANCE_ID={instance_id}' >> ~/.bashrc
         echo '#export AWS_DEFAULT_REGION={self.cfg.aws_region}' >> ~/.bashrc
@@ -2055,10 +2055,12 @@ class AWSBoto:
           export PYBIN=/usr/bin/python3.11
           ln -s /usr/bin/python3.11 ~/.local/bin/python3
         fi
-        $PYBIN -m pip install --upgrade --user --break-system-packages pip
-        $PYBIN -m pip install --upgrade --user --break-system-packages wheel awscli
-        $PYBIN -m pip install --user --upgrade --break-system-packages boto3 requests
-        $PYBIN -m pip install --user --break-system-packages psutil
+        mkdir -p ~/.config/pip
+        echo "[global]\nbreak-system-packages = true" > ~/.config/pip/pip.conf
+        $PYBIN -m pip install --upgrade --user pip
+        $PYBIN -m pip install --upgrade --user wheel awscli
+        $PYBIN -m pip install --user --upgrade boto3 requests
+        $PYBIN -m pip install --user psutil
         aws configure set aws_access_key_id {os.getenv('AWS_ACCESS_KEY_ID', '')}
         aws configure set aws_secret_access_key {os.getenv('AWS_SECRET_ACCESS_KEY')}
         aws configure set region {self.cfg.aws_region}
