@@ -4,7 +4,7 @@ ASM (Amazon Science Machine) launches an AWS EC2 Linux machine with pre-compiled
 
 Install: 
 ```
-curl -s https://raw.githubusercontent.com/dirkpetersen/froster/main/install.sh | bash
+curl -s https://raw.githubusercontent.com/dirkpetersen/asm/main/install.sh | bash
 ```
 Launch: 
 
