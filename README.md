@@ -6,12 +6,38 @@ Install:
 ```
 curl -s https://raw.githubusercontent.com/dirkpetersen/asm/main/install.sh | bash
 ```
+Config (for example setup the S3 bucket to use):
+```
+asm config 
+```
 Launch: 
-
 [![asciicast](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB.svg)](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB)
 
 
 
+## Config details
+
+```
+dp@grammy:~$ asm config
+ Installing rclone ... please wait ... Done!
+
+*** Asking a few questions ***
+*** For most you can just hit <Enter> to accept the default. ***
+
+*** Enter your email address: ***
+  [Default: dp@gmail.com]
+
+*** Please confirm/edit the standard hostname prefix. Use something short like your initials or first name. All machines will have a hostname with this prefix followed by a number : ***
+  [Default: dp]
+
+*** Please confirm/edit S3 bucket name to be created in all used profiles.: ***
+  [Default: asm-dp]
+*** Please confirm/edit the root path inside your S3 bucket: ***
+  [Default: dp]
+
+  Verify that bucket 'asm-dp' is configured ...
+Done!
+```
 
 
 ## Errors
