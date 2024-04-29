@@ -11,8 +11,8 @@ Config (for example setup the S3 bucket to use):
 asm config 
 ```
 Launch: 
-[![asciicast](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB.svg)](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB)
 
+[![asciicast](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB.svg)](https://asciinema.org/a/vvpaBisB9HGFtE13pgHvLL8xB)
 
 ## Config details
 
