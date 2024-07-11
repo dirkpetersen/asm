@@ -267,8 +267,9 @@ def subcmd_launch(args,cfg,asmc,aws):
         return False
 
     instance_type, _, _= aws._ec2_get_cheapest_spot_instance(args.cputype, args.vcpus, args.mem)
+    numvcpus = aws._ec2_get_num_vcpus(instance_type)
         
-    print(f'{instance_type} is the cheapest spot instance with at least {args.vcpus} vcpus / {args.mem} GB mem')
+    print(f'{instance_type} ({numvcpus} vcpus) is the cheapest spot instance with at least {args.vcpus} vcpus and {args.mem} GB mem')
 
     if not args.bootstrap:
         #if args.os == "amazon": # We will just use JuiceFS
@@ -1888,6 +1889,7 @@ class AWSBoto:
                 MaxResults=len(instance_ids)
             )
             # Find the cheapest instance
+            #print(spot_prices['SpotPriceHistory'])
             cheapest_instance = min(spot_prices['SpotPriceHistory'], key=operator.itemgetter('SpotPrice'))
             return cheapest_instance['InstanceType'], cheapest_instance['AvailabilityZone'], float(cheapest_instance['SpotPrice'])
     
@@ -2249,8 +2251,9 @@ class AWSBoto:
             instance_type = self.args.instancetype             
             price_spot, az = self._ec2_current_spot_price(instance_type, [self.cfg.aws_region])
         price_ondemand = float(self._ec2_ondemand_price(instance_type, self.cfg.aws_region))
+        numvcpus = self._ec2_get_num_vcpus(instance_type)   
 
-        print(f'{instance_type} in {az} costs ${price_ondemand:.4f} as on-demand and ${price_spot:.4f} as spot.')
+        print(f'{instance_type} in {az} costs ${price_ondemand:.4f} as on-demand and ${price_spot:.4f} as spot. (${price_spot/numvcpus:.4f} per vCPU)')
 
         if self.args.az:
             az = self.args.az
@@ -2392,6 +2395,16 @@ class AWSBoto:
                 if public_ip:
                     instance_ips.add(public_ip)
         return instance_ips
+    
+
+    def _ec2_get_num_vcpus(self, instance_type):
+        try:
+            ec2 = self.awssession.client('ec2')        
+            response = ec2.describe_instance_types(InstanceTypes=[instance_type])
+            return response['InstanceTypes'][0]['VCpuInfo']['DefaultVCpus']    
+        except Exception as e:
+            print(f'Error in _ec2_get_num_vcpus: {e}')
+            return None
 
     def ec2_terminate_instance(self, ip, profile=None):
         # terminate instance  
@@ -4424,8 +4437,8 @@ def parse_arguments():
     Gather command-line arguments.
     """
     parser = argparse.ArgumentParser(prog='asm ',
-        description='ASM is a script that creates Linux machines (EC2 Instances on Amazon). ' + \
-                    'It will download lots of precompiled software ')
+        description='ASM is a script that creates Linux machines (EC2 Instances on Amazon) ' + \
+                    'with good defaults. It will download lots of precompiled software ')
     parser.add_argument( '--debug', '-d', dest='debug', action='store_true', default=False,
         help="verbose output for all commands")
     parser.add_argument('--profile', '-p', dest='awsprofile', action='store', default='', metavar='<aws-profile>',
@@ -4460,15 +4473,15 @@ def parse_arguments():
     # ***
     parser_launch = subparsers.add_parser('launch', aliases=['lau'],
         help=textwrap.dedent(f'''
-            Launch EC2 instance, build new Easybuild packages and upload them to S3
+            Launch EC2 instance with good default settings 
         '''), formatter_class=argparse.RawTextHelpFormatter) 
-    parser_launch.add_argument('--cpu-type', '-c', dest='cputype', action='store', default="graviton-3", 
-        metavar='<cpu-type>', help='run config --list to see available CPU types. (e.g graviton-3)')
+    parser_launch.add_argument('--cpu-type', '-c', dest='cputype', action='store', default="graviton-4", 
+        metavar='<cpu-type>', help='run config --list to see available CPU types. (e.g graviton-4)')
     parser_launch.add_argument('--os', '-o', dest='os', action='store', default="amazon",
         help='build operating system, default=amazon (which is an optimized fedora) ' + 
         'valid choices are: amazon, rhel, ubuntu and any AMI name including wilcards *')
-    parser_launch.add_argument('--vcpus', '-v', dest='vcpus', type=int, action='store', default=4, metavar='<number-of-vcpus>',
-        help='Number of vcpus to be allocated for compilations on the target machine. (default=4) ' +
+    parser_launch.add_argument('--vcpus', '-v', dest='vcpus', type=int, action='store', default=2, metavar='<number-of-vcpus>',
+        help='Number of vcpus to be allocated for compilations on the target machine. (default=2) ' +
         'On x86-64 there are 2 vcpus per core and on Graviton (Arm) there is one core per vcpu')
     parser_launch.add_argument('--gpu-type', '-g', dest='gputype', action='store', default="", metavar='<gpu-type>',
         help='run --list to see available GPU types')       
